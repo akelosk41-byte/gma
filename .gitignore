@@ -1,0 +1,17 @@
+# Gradle / Android
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/captures/
+android/.idea/
+android/*.iml
+android/app/*.iml
+android/.kotlin/
+
+# Build outputs (only the published APK in dist/ is committed)
+android/app/build/outputs/apk/**/*.apk
+
+# OS
+.DS_Store
+Thumbs.db
