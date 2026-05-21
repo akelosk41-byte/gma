@@ -17,10 +17,12 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode|density"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode|density|smallestScreenSize|screenLayout"
             android:launchMode="singleTask"
             android:screenOrientation="sensorLandscape"
             android:resizeableActivity="false"
+            android:windowSoftInputMode="adjustResize"
+            tools:ignore="LockedOrientationActivity"
             android:theme="@style/Theme.Minecraft3D.NoActionBar">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

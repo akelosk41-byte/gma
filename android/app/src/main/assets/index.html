@@ -922,12 +922,30 @@
         const fpsBadge = document.getElementById('fpsBadge');
 
         function resize() {
-            const w = window.innerWidth, h = window.innerHeight;
-            renderer.setSize(w, h, false);
+            const w = Math.max(1, Math.floor(document.documentElement.clientWidth || window.innerWidth));
+            const h = Math.max(1, Math.floor(document.documentElement.clientHeight || window.innerHeight));
+            renderer.setSize(w, h, true);
+            canvas.style.width = w + 'px';
+            canvas.style.height = h + 'px';
             camera.aspect = w / h;
             camera.updateProjectionMatrix();
         }
         window.addEventListener('resize', resize);
+        window.addEventListener('orientationchange', () => setTimeout(resize, 50));
+        if (window.visualViewport) {
+            window.visualViewport.addEventListener('resize', resize);
+        }
+        // Catch late layout changes from the Android host (system bar hide,
+        // cutout insets being consumed, etc.) by polling for a few seconds.
+        let lastW = 0, lastH = 0, polls = 0;
+        const sizePoll = setInterval(() => {
+            const w = window.innerWidth, h = window.innerHeight;
+            if (w !== lastW || h !== lastH) {
+                lastW = w; lastH = h;
+                resize();
+            }
+            if (++polls > 60) clearInterval(sizePoll);
+        }, 100);
         resize();
 
         let started = false;
