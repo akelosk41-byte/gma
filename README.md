@@ -19,16 +19,60 @@ The flow:
 The legacy Space Runner game is still bundled and is served at
 [`/space-runner/`](./public/space-runner/index.html).
 
-## Stack
+## Deploy
 
-- Next.js 14 (App Router) + React 18 + TypeScript
-- Tailwind CSS
-- NextAuth (GitHub OAuth) — `repo` scope, so the app can read and write to
-  your private and public repos
-- `@octokit/rest` for the GitHub REST API
-- Direct `fetch` against the CloseRouter OpenAI-compatible API
+Easiest way (works from a phone): click the button.
 
-## Setup
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fakelosk41-byte%2Fgma&project-name=gma-codegen&repository-name=gma-codegen&env=NEXTAUTH_SECRET,GITHUB_CLIENT_ID,GITHUB_CLIENT_SECRET&envDescription=See%20the%20README%20for%20how%20to%20generate%20NEXTAUTH_SECRET%20and%20create%20a%20GitHub%20OAuth%20App.&envLink=https%3A%2F%2Fgithub.com%2Fakelosk41-byte%2Fgma%23deploy-to-vercel-step-by-step)
+
+The CloseRouter API key is **not** a Vercel env var — you paste it into the
+app's settings page after deploy, and it's stored only in your browser's
+`localStorage`.
+
+### Deploy to Vercel — step by step
+
+> The PR that introduces this app must be merged into the repo's default branch
+> first, otherwise Vercel will deploy the previous default-branch contents
+> instead of this app.
+
+1. **Generate a secret.** On any device, paste this into a random-string
+   generator like <https://generate-secret.vercel.app/32> or run
+   `openssl rand -hex 32` somewhere. Save the output — that's your
+   `NEXTAUTH_SECRET`.
+
+2. **Click the Deploy button above.**
+   - Sign in to Vercel with the same GitHub account that owns this repo.
+   - Pick a project name, e.g. `gma-codegen`. Vercel will give you a URL like
+     `gma-codegen-<hash>.vercel.app`.
+   - For the env vars, paste:
+     - `NEXTAUTH_SECRET` — the value you generated.
+     - `GITHUB_CLIENT_ID` — leave as `placeholder` for now (you'll edit it
+       after creating the GitHub OAuth app).
+     - `GITHUB_CLIENT_SECRET` — leave as `placeholder` too.
+   - Click **Deploy**. Wait for the build to finish.
+
+3. **Copy your Vercel URL** (e.g. `https://gma-codegen-xyz.vercel.app`).
+
+4. **Create a GitHub OAuth App.** Open
+   <https://github.com/settings/applications/new> and fill in:
+   - **Application name:** `gma codegen`
+   - **Homepage URL:** your Vercel URL.
+   - **Authorization callback URL:** your Vercel URL + `/api/auth/callback/github`
+     (e.g. `https://gma-codegen-xyz.vercel.app/api/auth/callback/github`).
+   - Click **Register application**, then **Generate a new client secret**.
+
+5. **Plug the real GitHub creds into Vercel.** In your Vercel project →
+   **Settings → Environment Variables**, edit:
+   - `GITHUB_CLIENT_ID` — Client ID from the OAuth app.
+   - `GITHUB_CLIENT_SECRET` — the secret you just generated.
+   Then go to **Deployments → ⋯ → Redeploy** the latest deployment.
+
+6. **Open your Vercel URL** and sign in with GitHub. On the dashboard,
+   paste your CloseRouter API key from
+   <https://closerouter.dev/dashboard>. Pick a repo and a model and try a
+   prompt.
+
+### Run locally instead
 
 ```bash
 npm install
@@ -37,23 +81,19 @@ cp .env.example .env.local
 npm run dev
 ```
 
-Then open <http://localhost:3000>.
-
-### GitHub OAuth app
-
-Create one at <https://github.com/settings/developers>:
+Then open <http://localhost:3000>. For the GitHub OAuth App, use:
 
 - Homepage URL: `http://localhost:3000`
 - Authorization callback URL: `http://localhost:3000/api/auth/callback/github`
 
-Copy the Client ID and Client Secret into `.env.local`.
+## Stack
 
-### CloseRouter
-
-Your CloseRouter API key is not stored on the server. It lives in your
-browser's localStorage and is forwarded to the server only when you click
-"Load models" or "Build with AI", which immediately uses it to call
-`https://api.closerouter.dev/v1` (or a custom base URL you configure).
+- Next.js 14 (App Router) + React 18 + TypeScript
+- Tailwind CSS
+- NextAuth (GitHub OAuth) — `repo` scope, so the app can read and write to
+  your private and public repos
+- `@octokit/rest` for the GitHub REST API
+- Direct `fetch` against the CloseRouter OpenAI-compatible API
 
 ## How the codegen works
 
