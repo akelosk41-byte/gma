@@ -1,140 +1,84 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   loadGithubClientId,
+  loadGithubClientSecret,
   loadGithubToken,
   loadGithubUser,
   saveGithubClientId,
+  saveGithubClientSecret,
   saveGithubToken,
   saveGithubUser,
 } from "@/lib/settings";
 
-interface DeviceCode {
-  deviceCode: string;
-  userCode: string;
-  verificationUri: string;
-  expiresIn: number;
-  interval: number;
-}
-
 export default function GithubAuthCard({
   ready,
-  onAuthed,
 }: {
   ready: boolean;
-  onAuthed?: (token: string, login: string | null) => void;
 }) {
   const [clientId, setClientId] = useState("");
+  const [clientSecret, setClientSecret] = useState("");
   const [token, setToken] = useState("");
   const [login, setLogin] = useState("");
-  const [showClient, setShowClient] = useState(false);
-  const [device, setDevice] = useState<DeviceCode | null>(null);
-  const [polling, setPolling] = useState(false);
+  const [showId, setShowId] = useState(false);
+  const [showSecret, setShowSecret] = useState(false);
+  const [callbackUrl, setCallbackUrl] = useState("");
+  const [callbackCopied, setCallbackCopied] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [startedAt, setStartedAt] = useState<number | null>(null);
-  const pollTimer = useRef<number | null>(null);
 
   useEffect(() => {
     setClientId(loadGithubClientId());
+    setClientSecret(loadGithubClientSecret());
     setToken(loadGithubToken());
     setLogin(loadGithubUser());
-    return () => {
-      if (pollTimer.current) window.clearTimeout(pollTimer.current);
-    };
+    if (typeof window !== "undefined") {
+      setCallbackUrl(window.location.origin + "/api/auth/callback");
+    }
   }, []);
 
-  const cancel = useCallback(() => {
-    if (pollTimer.current) window.clearTimeout(pollTimer.current);
-    pollTimer.current = null;
-    setDevice(null);
-    setPolling(false);
-    setError(null);
-    setStartedAt(null);
-  }, []);
+  const copyCallback = async () => {
+    try {
+      await navigator.clipboard.writeText(callbackUrl);
+      setCallbackCopied(true);
+      window.setTimeout(() => setCallbackCopied(false), 1500);
+    } catch {
+      // ignore
+    }
+  };
 
-  const poll = useCallback(
-    async (cid: string, dc: DeviceCode, interval: number) => {
-      try {
-        const res = await fetch("/api/github/device-poll", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ clientId: cid, deviceCode: dc.deviceCode }),
-        });
-        const data = await res.json();
-        if (data.status === "success") {
-          setPolling(false);
-          const t = data.accessToken as string;
-          const l = (data.login as string | undefined) || "";
-          saveGithubToken(t);
-          saveGithubUser(l);
-          setToken(t);
-          setLogin(l);
-          setDevice(null);
-          setError(null);
-          onAuthed?.(t, l || null);
-          return;
-        }
-        if (data.status === "pending") {
-          pollTimer.current = window.setTimeout(
-            () => void poll(cid, dc, interval),
-            interval * 1000,
-          );
-          return;
-        }
-        if (data.status === "slow_down") {
-          pollTimer.current = window.setTimeout(
-            () => void poll(cid, dc, interval + 5),
-            (interval + 5) * 1000,
-          );
-          return;
-        }
-        setPolling(false);
-        setDevice(null);
-        setError(data.error || "GitHub auth failed.");
-      } catch (err) {
-        setPolling(false);
-        setDevice(null);
-        setError(err instanceof Error ? err.message : "Unknown error");
-      }
-    },
-    [onAuthed],
-  );
-
-  const sign = async () => {
+  const signIn = async () => {
     setError(null);
-    cancel();
+    setSubmitting(true);
     const cid = clientId.trim();
-    if (!cid) {
-      setError("Enter your GitHub OAuth App Client ID first.");
+    const cs = clientSecret.trim();
+    if (!cid || !cs) {
+      setError("Enter both Client ID and Client Secret.");
+      setSubmitting(false);
       return;
     }
     saveGithubClientId(cid);
+    saveGithubClientSecret(cs);
     try {
-      const res = await fetch("/api/github/device-code", {
+      const res = await fetch("/api/auth/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clientId: cid, scope: "repo" }),
+        body: JSON.stringify({
+          clientId: cid,
+          clientSecret: cs,
+          redirectUri: callbackUrl,
+          scope: "repo",
+        }),
       });
       const data = await res.json();
-      if (!res.ok)
-        throw new Error(data?.error || "Failed to start device flow.");
-      const dc: DeviceCode = {
-        deviceCode: data.deviceCode,
-        userCode: data.userCode,
-        verificationUri: data.verificationUri,
-        expiresIn: data.expiresIn,
-        interval: data.interval,
-      };
-      setDevice(dc);
-      setPolling(true);
-      setStartedAt(Date.now());
-      pollTimer.current = window.setTimeout(
-        () => void poll(cid, dc, dc.interval),
-        dc.interval * 1000,
-      );
+      if (!res.ok || !data.authorizeUrl) {
+        throw new Error(data?.error || "Failed to start OAuth.");
+      }
+      window.location.href = data.authorizeUrl as string;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
+      setSubmitting(false);
     }
   };
 
@@ -144,6 +88,18 @@ export default function GithubAuthCard({
     setToken("");
     setLogin("");
   };
+
+  const oauthAppNewUrl =
+    callbackUrl &&
+    `https://github.com/settings/applications/new?` +
+      new URLSearchParams({
+        "oauth_application[name]": "gma-codegen",
+        "oauth_application[url]": callbackUrl.replace(
+          "/api/auth/callback",
+          "",
+        ),
+        "oauth_application[callback_url]": callbackUrl,
+      }).toString();
 
   return (
     <section
@@ -163,17 +119,8 @@ export default function GithubAuthCard({
         <p className="mt-1 text-sm text-zinc-400">Complete Step 1 first.</p>
       ) : (
         <p className="mt-1 text-sm text-zinc-400">
-          Uses{" "}
-          <a
-            href="https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps#device-flow"
-            target="_blank"
-            rel="noreferrer"
-            className="underline"
-          >
-            GitHub OAuth Device Flow
-          </a>
-          : no callback URL, no secret. Paste your OAuth App Client ID, click
-          sign in, then enter an 8-character code on github.com.
+          Standard GitHub OAuth — you&apos;ll be redirected to github.com to
+          authorize, then back here.
         </p>
       )}
 
@@ -191,145 +138,120 @@ export default function GithubAuthCard({
           </span>
         </div>
       ) : (
-        <div className="mt-4 space-y-3">
+        <div className="mt-4 space-y-4">
+          <div className="rounded-lg border border-border bg-black/30 p-3 text-sm">
+            <p className="text-zinc-300">
+              <strong>One-time GitHub setup.</strong> Open{" "}
+              {oauthAppNewUrl ? (
+                <a
+                  href={oauthAppNewUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline"
+                >
+                  github.com/settings/applications/new
+                </a>
+              ) : (
+                <code>github.com/settings/applications/new</code>
+              )}{" "}
+              and create an OAuth App with these settings:
+            </p>
+            <ul className="mt-2 space-y-1 text-xs text-zinc-400">
+              <li>
+                <strong>Application name:</strong> anything (e.g.{" "}
+                <code>gma-codegen</code>)
+              </li>
+              <li>
+                <strong>Homepage URL:</strong>{" "}
+                <code className="break-all">
+                  {callbackUrl
+                    ? callbackUrl.replace("/api/auth/callback", "")
+                    : "your deployed URL"}
+                </code>
+              </li>
+              <li className="flex flex-wrap items-center gap-2">
+                <span>
+                  <strong>Authorization callback URL:</strong>{" "}
+                </span>
+                <code className="break-all rounded bg-black/50 px-2 py-0.5">
+                  {callbackUrl || "/api/auth/callback"}
+                </code>
+                <button
+                  type="button"
+                  onClick={copyCallback}
+                  disabled={!callbackUrl}
+                  className="rounded-md border border-border px-2 py-0.5 text-xs hover:border-accent disabled:opacity-50"
+                >
+                  {callbackCopied ? "Copied!" : "Copy"}
+                </button>
+              </li>
+            </ul>
+            <p className="mt-2 text-xs text-zinc-500">
+              After registering, click <em>Generate a new client secret</em>{" "}
+              and paste both values below.
+            </p>
+          </div>
+
           <label className="block text-sm">
-            <span className="mb-1 block text-zinc-300">
-              GitHub OAuth App Client ID{" "}
-              <a
-                href="https://github.com/settings/applications/new"
-                target="_blank"
-                rel="noreferrer"
-                className="text-xs underline"
-              >
-                create one →
-              </a>
-            </span>
+            <span className="mb-1 block text-zinc-300">Client ID</span>
             <div className="flex gap-2">
               <input
-                type={showClient ? "text" : "password"}
+                type={showId ? "text" : "password"}
                 autoComplete="off"
                 value={clientId}
                 onChange={(e) => setClientId(e.target.value)}
-                placeholder="Iv1.xxxxxxxxxxxxxxxx (no secret needed)"
+                placeholder="Ov23li... or Iv1...."
                 disabled={!ready}
               />
               <button
                 type="button"
-                onClick={() => setShowClient((s) => !s)}
+                onClick={() => setShowId((s) => !s)}
                 className="shrink-0 rounded-lg border border-border px-3"
               >
-                {showClient ? "Hide" : "Show"}
+                {showId ? "Hide" : "Show"}
+              </button>
+            </div>
+          </label>
+
+          <label className="block text-sm">
+            <span className="mb-1 block text-zinc-300">Client Secret</span>
+            <div className="flex gap-2">
+              <input
+                type={showSecret ? "text" : "password"}
+                autoComplete="off"
+                value={clientSecret}
+                onChange={(e) => setClientSecret(e.target.value)}
+                placeholder="github_pat-style 40-char secret"
+                disabled={!ready}
+              />
+              <button
+                type="button"
+                onClick={() => setShowSecret((s) => !s)}
+                className="shrink-0 rounded-lg border border-border px-3"
+              >
+                {showSecret ? "Hide" : "Show"}
               </button>
             </div>
             <span className="mt-1 block text-xs text-zinc-500">
-              When you create the OAuth App: any Homepage URL is fine (e.g.
-              your Vercel URL), use the same value for the &quot;Authorization
-              callback URL&quot; field, and{" "}
-              <strong>enable the &quot;Device Flow&quot; checkbox</strong>.
-              You only need the <em>Client ID</em> — no secret.
+              Stored only in this browser&apos;s localStorage. It is sent to
+              this app&apos;s own backend during sign-in so it can complete
+              the OAuth code exchange with GitHub.
             </span>
           </label>
-          {device ? (
-            <DeviceCodeBlock
-              device={device}
-              startedAt={startedAt}
-              polling={polling}
-              onCancel={cancel}
-            />
-          ) : (
-            <button
-              type="button"
-              onClick={() => void sign()}
-              disabled={!ready || !clientId.trim()}
-              className="rounded-lg bg-accent px-4 py-2 font-medium text-white hover:opacity-90 disabled:opacity-50"
-            >
-              Sign in with GitHub
-            </button>
-          )}
+
+          <button
+            type="button"
+            onClick={() => void signIn()}
+            disabled={
+              !ready || !clientId.trim() || !clientSecret.trim() || submitting
+            }
+            className="rounded-lg bg-accent px-4 py-2 font-medium text-white hover:opacity-90 disabled:opacity-50"
+          >
+            {submitting ? "Redirecting…" : "Sign in with GitHub"}
+          </button>
           {error ? <p className="text-sm text-red-400">{error}</p> : null}
         </div>
       )}
     </section>
-  );
-}
-
-function DeviceCodeBlock({
-  device,
-  startedAt,
-  polling,
-  onCancel,
-}: {
-  device: DeviceCode;
-  startedAt: number | null;
-  polling: boolean;
-  onCancel: () => void;
-}) {
-  const [copied, setCopied] = useState(false);
-  const [tick, setTick] = useState(0);
-  useEffect(() => {
-    const id = window.setInterval(() => setTick((t) => t + 1), 1000);
-    return () => window.clearInterval(id);
-  }, []);
-  const elapsed = startedAt ? Math.floor((Date.now() - startedAt) / 1000) : 0;
-  const remaining = Math.max(0, device.expiresIn - elapsed);
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(device.userCode);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // ignore
-    }
-  };
-  // tick keeps the countdown updating
-  void tick;
-  return (
-    <div className="rounded-lg border border-accent/40 bg-accent/5 p-4">
-      <p className="text-sm text-zinc-200">
-        Open{" "}
-        <a
-          href={device.verificationUri}
-          target="_blank"
-          rel="noreferrer"
-          className="font-semibold underline"
-        >
-          {device.verificationUri}
-        </a>{" "}
-        on any device and enter this code:
-      </p>
-      <div className="mt-3 flex flex-wrap items-center gap-3">
-        <code className="rounded-lg bg-black/40 px-4 py-2 text-2xl font-bold tracking-widest text-accent">
-          {device.userCode}
-        </code>
-        <button
-          type="button"
-          onClick={copy}
-          className="rounded-lg border border-border px-3 py-2 text-sm hover:border-accent"
-        >
-          {copied ? "Copied!" : "Copy code"}
-        </button>
-        <a
-          href={device.verificationUri}
-          target="_blank"
-          rel="noreferrer"
-          className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white hover:opacity-90"
-        >
-          Open GitHub →
-        </a>
-      </div>
-      <p className="mt-3 text-xs text-zinc-400">
-        {polling
-          ? "Waiting for you to authorize on github.com…"
-          : "Polling stopped."}{" "}
-        Code expires in ~{remaining}s.
-      </p>
-      <button
-        type="button"
-        onClick={onCancel}
-        className="mt-2 text-xs text-zinc-500 underline"
-      >
-        Cancel
-      </button>
-    </div>
   );
 }

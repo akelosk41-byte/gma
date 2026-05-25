@@ -10,7 +10,6 @@ import { loadApiKey, loadGithubToken } from "@/lib/settings";
 export default function HomePage() {
   const [step1Done, setStep1Done] = useState(false);
   const [step2Done, setStep2Done] = useState(false);
-  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     setStep1Done(!!loadApiKey());
@@ -30,7 +29,7 @@ export default function HomePage() {
           </p>
           <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-zinc-300">
             <li>Enter your CloseRouter API key and load available models.</li>
-            <li>Sign in with GitHub via OAuth (device flow).</li>
+            <li>Sign in with GitHub via OAuth.</li>
             <li>
               Pick a repo, write what you want built — the AI commits the
               changes to a new branch and opens a PR.
@@ -39,15 +38,9 @@ export default function HomePage() {
         </section>
 
         <CloseRouterCard onReady={() => setStep1Done(true)} />
-        <GithubAuthCard
-          ready={step1Done}
-          onAuthed={() => {
-            setStep2Done(true);
-            setRefreshKey((k) => k + 1);
-          }}
-        />
+        <GithubAuthCard ready={step1Done} />
         {step2Done ? (
-          <RepoPicker key={refreshKey} />
+          <RepoPicker />
         ) : (
           <section className="rounded-2xl border border-border bg-panel p-6 opacity-60">
             <h2 className="text-lg font-semibold">

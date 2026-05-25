@@ -26,27 +26,29 @@ is never touched.
 
    - **Step 1 — CloseRouter API key.** Paste your key from
      <https://closerouter.dev/dashboard>, click *Check models*. The app
-     shows the list of available models and remembers your pick.
-   - **Step 2 — Sign in with GitHub.** First time only, create a GitHub
-     OAuth App at <https://github.com/settings/applications/new>:
+     shows the list of available models and remembers your default pick.
+   - **Step 2 — Sign in with GitHub (OAuth callback flow).** First time
+     only, the page tells you the exact *Authorization callback URL* for
+     your deploy (`https://YOUR-VERCEL-URL/api/auth/callback`) — copy it.
+     Then create a GitHub OAuth App at
+     <https://github.com/settings/applications/new>:
      - *Application name*: anything (e.g. `gma-codegen`).
      - *Homepage URL*: your Vercel URL.
-     - *Authorization callback URL*: same as Homepage URL (required by
-       GitHub, not used by us).
-     - **Enable the "Device flow" checkbox.**
-     - Click *Register application* → copy the **Client ID** (no client
-       secret needed).
+     - *Authorization callback URL*: paste the value you copied.
+     - Click *Register application* → click *Generate a new client secret*.
+     - Copy the **Client ID** and the **Client Secret**.
 
-     Paste the Client ID, click *Sign in with GitHub*. The app shows an
-     8-character code; tap *Open GitHub*, paste the code, authorize. The
-     app polls in the background and finishes the sign-in for you.
-   - **Step 3 — Your repositories.** Pick a repo, click *Load models* if
-     needed, type what you want built, click *Build with AI*. You'll get
-     a new branch and a PR link.
+     Paste both into the form on the home page and click *Sign in with
+     GitHub*. You'll be redirected to github.com, you click *Authorize*,
+     GitHub bounces you back to the app, and your token is saved in the
+     browser's `localStorage`.
+   - **Step 3 — Your repositories.** Pick a repo, type what you want
+     built, click *Build with AI*. You'll get a new branch and a PR link.
 
-All credentials live only in your browser's `localStorage`. They are sent
-to the server only when an API call needs them; they are not persisted on
-Vercel.
+All credentials live only in your browser's `localStorage`. The Client
+Secret is forwarded to this app's own backend during sign-in (so it can
+complete the OAuth code exchange with GitHub), then immediately discarded
+from the server. Nothing is persisted on Vercel.
 
 ## Run locally instead
 
@@ -55,7 +57,9 @@ npm install
 npm run dev
 ```
 
-Then open <http://localhost:3000>. No `.env` file is required.
+Then open <http://localhost:3000>. No `.env` file is required. When
+registering a GitHub OAuth App for local use, set the callback URL to
+`http://localhost:3000/api/auth/callback`.
 
 ## Stack
 
@@ -63,8 +67,15 @@ Then open <http://localhost:3000>. No `.env` file is required.
 - Tailwind CSS
 - `@octokit/rest` for the GitHub REST API
 - Direct `fetch` against the CloseRouter OpenAI-compatible API
-- GitHub OAuth **Device Flow** for sign-in — no callback URL handling, no
-  client secret, no NextAuth, no database
+- Standard GitHub OAuth web flow handled in two routes:
+  - `POST /api/auth/start` — stashes the Client ID + Secret + state in
+    HttpOnly cookies for the round-trip and returns the GitHub authorize
+    URL.
+  - `GET /api/auth/callback` — verifies state, exchanges the code for an
+    access token, returns a page that writes the token to `localStorage`
+    and redirects home.
+
+  No NextAuth, no database, no env vars.
 
 ## How the codegen works
 

@@ -4,6 +4,7 @@ const KEY_API = "gma.closerouter.apiKey";
 const KEY_BASE = "gma.closerouter.baseUrl";
 const KEY_GH = "gma.github.token";
 const KEY_GH_CLIENT = "gma.github.clientId";
+const KEY_GH_SECRET = "gma.github.clientSecret";
 const KEY_GH_USER = "gma.github.user";
 const KEY_MODEL = "gma.closerouter.model";
 
@@ -41,6 +42,12 @@ export function loadGithubClientId(): string {
 }
 export function saveGithubClientId(value: string): void {
   writeLS(KEY_GH_CLIENT, value);
+}
+export function loadGithubClientSecret(): string {
+  return readLS(KEY_GH_SECRET);
+}
+export function saveGithubClientSecret(value: string): void {
+  writeLS(KEY_GH_SECRET, value);
 }
 export function loadGithubUser(): string {
   return readLS(KEY_GH_USER);
