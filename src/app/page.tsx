@@ -1,10 +1,22 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Header from "@/components/Header";
-import SettingsCard from "@/components/SettingsCard";
+import CloseRouterCard from "@/components/CloseRouterCard";
+import GithubAuthCard from "@/components/GithubAuthCard";
 import RepoPicker from "@/components/RepoPicker";
+import { loadApiKey, loadGithubToken } from "@/lib/settings";
 
 export default function HomePage() {
+  const [step1Done, setStep1Done] = useState(false);
+  const [step2Done, setStep2Done] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    setStep1Done(!!loadApiKey());
+    setStep2Done(!!loadGithubToken());
+  }, []);
+
   return (
     <>
       <Header />
@@ -14,14 +26,38 @@ export default function HomePage() {
             gma codegen
           </h1>
           <p className="mt-2 text-zinc-300">
-            AI code generator for your GitHub repos. Paste two tokens below,
-            pick a repo + a model, write what you want — the AI commits the
-            changes to a new branch in your repo and opens a PR.
+            AI code generator for your GitHub repos. Three quick steps:
           </p>
+          <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-zinc-300">
+            <li>Enter your CloseRouter API key and load available models.</li>
+            <li>Sign in with GitHub via OAuth (device flow).</li>
+            <li>
+              Pick a repo, write what you want built — the AI commits the
+              changes to a new branch and opens a PR.
+            </li>
+          </ol>
         </section>
 
-        <SettingsCard />
-        <RepoPicker />
+        <CloseRouterCard onReady={() => setStep1Done(true)} />
+        <GithubAuthCard
+          ready={step1Done}
+          onAuthed={() => {
+            setStep2Done(true);
+            setRefreshKey((k) => k + 1);
+          }}
+        />
+        {step2Done ? (
+          <RepoPicker key={refreshKey} />
+        ) : (
+          <section className="rounded-2xl border border-border bg-panel p-6 opacity-60">
+            <h2 className="text-lg font-semibold">
+              Step 3 — Your repositories
+            </h2>
+            <p className="mt-1 text-sm text-zinc-400">
+              Sign in with GitHub above to load your repos.
+            </p>
+          </section>
+        )}
       </main>
     </>
   );

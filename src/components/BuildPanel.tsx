@@ -2,7 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { CloseRouterModel } from "@/lib/closerouter";
-import { loadApiKey, loadBaseUrl, loadGithubToken } from "@/lib/settings";
+import {
+  loadApiKey,
+  loadBaseUrl,
+  loadGithubToken,
+  loadSelectedModel,
+  saveSelectedModel,
+} from "@/lib/settings";
 
 interface BuildResult {
   ok: boolean;
@@ -35,9 +41,33 @@ export default function BuildPanel({
   const [openPr, setOpenPr] = useState(true);
 
   useEffect(() => {
-    setApiKey(loadApiKey());
-    setBaseUrl(loadBaseUrl());
-    setGhToken(loadGithubToken());
+    const k = loadApiKey();
+    const b = loadBaseUrl();
+    const g = loadGithubToken();
+    const m = loadSelectedModel();
+    setApiKey(k);
+    setBaseUrl(b);
+    setGhToken(g);
+    if (m) setModel(m);
+    if (k) {
+      void (async () => {
+        try {
+          const res = await fetch("/api/models", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ apiKey: k, baseUrl: b }),
+          });
+          const data = await res.json();
+          if (res.ok) {
+            const list = (data.models as CloseRouterModel[]) ?? [];
+            setModels(list);
+            if (!m && list.length > 0) setModel(list[0].id);
+          }
+        } catch {
+          // ignore — user can still click Load models manually
+        }
+      })();
+    }
   }, []);
 
   const fetchModels = async () => {
@@ -126,10 +156,10 @@ export default function BuildPanel({
 
       {!apiKey || !githubToken ? (
         <p className="mt-3 rounded-lg border border-yellow-700/40 bg-yellow-900/20 px-3 py-2 text-sm text-yellow-200">
-          Add your{" "}
-          {!githubToken ? "GitHub token" : null}
+          Complete{" "}
+          {!apiKey ? "Step 1 (CloseRouter API key)" : null}
           {!apiKey && !githubToken ? " and " : null}
-          {!apiKey ? "CloseRouter API key" : null}{" "}
+          {!githubToken ? "Step 2 (Sign in with GitHub)" : null}{" "}
           on the{" "}
           <a href="/" className="underline">
             home page
@@ -151,7 +181,10 @@ export default function BuildPanel({
           ) : (
             <select
               value={model}
-              onChange={(e) => setModel(e.target.value)}
+              onChange={(e) => {
+                setModel(e.target.value);
+                saveSelectedModel(e.target.value);
+              }}
             >
               {models.map((m) => (
                 <option key={m.id} value={m.id}>

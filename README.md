@@ -3,9 +3,10 @@
 An AI code generator for your GitHub repos, powered by your
 [CloseRouter](https://closerouter.dev/dashboard) API key.
 
-Paste two tokens into the app, pick a repo + a model, write what you want
-built. The AI commits the changes to a new branch in your repo and opens a
-pull request. Your default branch is never touched.
+You enter your CloseRouter key, check available models, sign in with GitHub
+via OAuth, then pick a repo and write a prompt. The AI commits the changes
+to a new branch in your repo and opens a pull request. Your default branch
+is never touched.
 
 ## Deploy in 3 steps (works from a phone)
 
@@ -21,20 +22,30 @@ pull request. Your default branch is never touched.
 2. **Open your Vercel URL** (something like
    `https://gma-codegen-xyz.vercel.app`).
 
-3. **Paste two tokens on the home page** and hit Save:
+3. **Walk through the 3 steps on the home page:**
 
-   - **GitHub Personal Access Token** — create one at
-     <https://github.com/settings/tokens/new?scopes=repo&description=gma+codegen>.
-     The link pre-fills the `repo` scope. Click "Generate token" and copy
-     the `ghp_…` string.
-   - **CloseRouter API key** — grab it from
-     <https://closerouter.dev/dashboard>.
+   - **Step 1 — CloseRouter API key.** Paste your key from
+     <https://closerouter.dev/dashboard>, click *Check models*. The app
+     shows the list of available models and remembers your pick.
+   - **Step 2 — Sign in with GitHub.** First time only, create a GitHub
+     OAuth App at <https://github.com/settings/applications/new>:
+     - *Application name*: anything (e.g. `gma-codegen`).
+     - *Homepage URL*: your Vercel URL.
+     - *Authorization callback URL*: same as Homepage URL (required by
+       GitHub, not used by us).
+     - **Enable the "Device flow" checkbox.**
+     - Click *Register application* → copy the **Client ID** (no client
+       secret needed).
 
-   Click "Load repos", pick a repo, click "Load models", pick a model, type
-   what you want built, click "Build with AI". You're done.
+     Paste the Client ID, click *Sign in with GitHub*. The app shows an
+     8-character code; tap *Open GitHub*, paste the code, authorize. The
+     app polls in the background and finishes the sign-in for you.
+   - **Step 3 — Your repositories.** Pick a repo, click *Load models* if
+     needed, type what you want built, click *Build with AI*. You'll get
+     a new branch and a PR link.
 
-Both tokens live only in your browser's `localStorage` and are forwarded to
-the server only when an API call needs them. They are not persisted on
+All credentials live only in your browser's `localStorage`. They are sent
+to the server only when an API call needs them; they are not persisted on
 Vercel.
 
 ## Run locally instead
@@ -52,8 +63,8 @@ Then open <http://localhost:3000>. No `.env` file is required.
 - Tailwind CSS
 - `@octokit/rest` for the GitHub REST API
 - Direct `fetch` against the CloseRouter OpenAI-compatible API
-- No OAuth, no NextAuth, no database — the app is fully client-credential
-  driven
+- GitHub OAuth **Device Flow** for sign-in — no callback URL handling, no
+  client secret, no NextAuth, no database
 
 ## How the codegen works
 

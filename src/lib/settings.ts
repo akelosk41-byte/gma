@@ -3,6 +3,9 @@
 const KEY_API = "gma.closerouter.apiKey";
 const KEY_BASE = "gma.closerouter.baseUrl";
 const KEY_GH = "gma.github.token";
+const KEY_GH_CLIENT = "gma.github.clientId";
+const KEY_GH_USER = "gma.github.user";
+const KEY_MODEL = "gma.closerouter.model";
 
 function readLS(key: string): string {
   if (typeof window === "undefined") return "";
@@ -32,4 +35,22 @@ export function loadGithubToken(): string {
 }
 export function saveGithubToken(value: string): void {
   writeLS(KEY_GH, value);
+}
+export function loadGithubClientId(): string {
+  return readLS(KEY_GH_CLIENT);
+}
+export function saveGithubClientId(value: string): void {
+  writeLS(KEY_GH_CLIENT, value);
+}
+export function loadGithubUser(): string {
+  return readLS(KEY_GH_USER);
+}
+export function saveGithubUser(value: string): void {
+  writeLS(KEY_GH_USER, value);
+}
+export function loadSelectedModel(): string {
+  return readLS(KEY_MODEL);
+}
+export function saveSelectedModel(value: string): void {
+  writeLS(KEY_MODEL, value);
 }
