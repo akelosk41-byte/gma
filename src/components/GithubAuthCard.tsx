@@ -1,105 +1,206 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  loadGithubClientId,
-  loadGithubClientSecret,
   loadGithubToken,
   loadGithubUser,
-  saveGithubClientId,
-  saveGithubClientSecret,
   saveGithubToken,
   saveGithubUser,
 } from "@/lib/settings";
 
-export default function GithubAuthCard({
-  ready,
-}: {
-  ready: boolean;
-}) {
-  const [clientId, setClientId] = useState("");
-  const [clientSecret, setClientSecret] = useState("");
+type Phase = "idle" | "starting" | "waiting" | "success" | "error";
+
+interface DeviceStart {
+  deviceCode: string;
+  userCode: string;
+  verificationUri: string;
+  verificationUriComplete?: string;
+  expiresIn: number;
+  interval: number;
+}
+
+export default function GithubAuthCard({ ready }: { ready: boolean }) {
   const [token, setToken] = useState("");
   const [login, setLogin] = useState("");
-  const [showId, setShowId] = useState(false);
-  const [showSecret, setShowSecret] = useState(false);
-  const [callbackUrl, setCallbackUrl] = useState("");
-  const [callbackCopied, setCallbackCopied] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+  const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [device, setDevice] = useState<DeviceStart | null>(null);
+  const [codeCopied, setCodeCopied] = useState(false);
+  const [secondsLeft, setSecondsLeft] = useState(0);
+
+  const pollTimerRef = useRef<number | null>(null);
+  const expiryTimerRef = useRef<number | null>(null);
+  const stoppedRef = useRef(false);
 
   useEffect(() => {
-    setClientId(loadGithubClientId());
-    setClientSecret(loadGithubClientSecret());
     setToken(loadGithubToken());
     setLogin(loadGithubUser());
-    if (typeof window !== "undefined") {
-      setCallbackUrl(window.location.origin + "/api/auth/callback");
+  }, []);
+
+  const clearTimers = useCallback(() => {
+    if (pollTimerRef.current) {
+      window.clearTimeout(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+    if (expiryTimerRef.current) {
+      window.clearInterval(expiryTimerRef.current);
+      expiryTimerRef.current = null;
     }
   }, []);
 
-  const copyCallback = async () => {
-    try {
-      await navigator.clipboard.writeText(callbackUrl);
-      setCallbackCopied(true);
-      window.setTimeout(() => setCallbackCopied(false), 1500);
-    } catch {
-      // ignore
-    }
-  };
+  useEffect(() => {
+    return () => {
+      stoppedRef.current = true;
+      clearTimers();
+    };
+  }, [clearTimers]);
 
-  const signIn = async () => {
+  const cancel = useCallback(() => {
+    stoppedRef.current = true;
+    clearTimers();
+    setDevice(null);
+    setPhase("idle");
     setError(null);
-    setSubmitting(true);
-    const cid = clientId.trim();
-    const cs = clientSecret.trim();
-    if (!cid || !cs) {
-      setError("Enter both Client ID and Client Secret.");
-      setSubmitting(false);
-      return;
-    }
-    saveGithubClientId(cid);
-    saveGithubClientSecret(cs);
-    try {
-      const res = await fetch("/api/auth/start", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          clientId: cid,
-          clientSecret: cs,
-          redirectUri: callbackUrl,
-          scope: "repo",
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.authorizeUrl) {
-        throw new Error(data?.error || "Failed to start OAuth.");
+  }, [clearTimers]);
+
+  const finishWithToken = useCallback(
+    (accessToken: string, userLogin: string) => {
+      saveGithubToken(accessToken);
+      saveGithubUser(userLogin);
+      setToken(accessToken);
+      setLogin(userLogin);
+      setPhase("success");
+      clearTimers();
+    },
+    [clearTimers],
+  );
+
+  const poll = useCallback(
+    async (deviceCode: string, intervalMs: number) => {
+      if (stoppedRef.current) return;
+      try {
+        const res = await fetch("/api/auth/device/poll", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ deviceCode }),
+        });
+        const data = (await res.json()) as {
+          status?: "authorized" | "pending" | "error";
+          accessToken?: string;
+          login?: string;
+          slowDown?: boolean;
+          interval?: number;
+          error?: string;
+        };
+        if (stoppedRef.current) return;
+        if (data.status === "authorized" && data.accessToken) {
+          finishWithToken(data.accessToken, data.login || "");
+          return;
+        }
+        if (data.status === "pending") {
+          const next = data.slowDown
+            ? Math.max(intervalMs + 5000, (data.interval ?? 5) * 1000)
+            : (data.interval ? data.interval * 1000 : intervalMs);
+          pollTimerRef.current = window.setTimeout(
+            () => void poll(deviceCode, next),
+            next,
+          );
+          return;
+        }
+        setError(data.error || "GitHub rejected the device flow.");
+        setPhase("error");
+        clearTimers();
+      } catch (err) {
+        if (stoppedRef.current) return;
+        setError(err instanceof Error ? err.message : "Network error");
+        setPhase("error");
+        clearTimers();
       }
-      window.location.href = data.authorizeUrl as string;
+    },
+    [clearTimers, finishWithToken],
+  );
+
+  const startSignIn = useCallback(async () => {
+    setError(null);
+    setPhase("starting");
+    setDevice(null);
+    stoppedRef.current = false;
+    try {
+      const res = await fetch("/api/auth/device/start", { method: "POST" });
+      const data = (await res.json()) as Partial<DeviceStart> & {
+        error?: string;
+      };
+      if (
+        !res.ok ||
+        !data.deviceCode ||
+        !data.userCode ||
+        !data.verificationUri
+      ) {
+        throw new Error(data.error || "Failed to start GitHub sign-in.");
+      }
+      const start: DeviceStart = {
+        deviceCode: data.deviceCode,
+        userCode: data.userCode,
+        verificationUri: data.verificationUri,
+        verificationUriComplete: data.verificationUriComplete,
+        expiresIn: data.expiresIn ?? 900,
+        interval: data.interval ?? 5,
+      };
+      setDevice(start);
+      setSecondsLeft(start.expiresIn);
+      setPhase("waiting");
+
+      const verifyUrl = start.verificationUriComplete || start.verificationUri;
+      try {
+        window.open(verifyUrl, "_blank", "noopener,noreferrer");
+      } catch {
+        // popup blocked — the modal still shows a button the user can click
+      }
+
+      expiryTimerRef.current = window.setInterval(() => {
+        setSecondsLeft((s) => {
+          if (s <= 1) {
+            stoppedRef.current = true;
+            clearTimers();
+            setPhase("error");
+            setError("Sign-in timed out. Click 'Sign in with GitHub' again.");
+            return 0;
+          }
+          return s - 1;
+        });
+      }, 1000);
+
+      const intervalMs = start.interval * 1000;
+      pollTimerRef.current = window.setTimeout(
+        () => void poll(start.deviceCode, intervalMs),
+        intervalMs,
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
-      setSubmitting(false);
+      setPhase("error");
     }
-  };
+  }, [clearTimers, poll]);
 
   const signOut = () => {
     saveGithubToken("");
     saveGithubUser("");
     setToken("");
     setLogin("");
+    setPhase("idle");
   };
 
-  const oauthAppNewUrl =
-    callbackUrl &&
-    `https://github.com/settings/applications/new?` +
-      new URLSearchParams({
-        "oauth_application[name]": "gma-codegen",
-        "oauth_application[url]": callbackUrl.replace(
-          "/api/auth/callback",
-          "",
-        ),
-        "oauth_application[callback_url]": callbackUrl,
-      }).toString();
+  const copyCode = async () => {
+    if (!device) return;
+    try {
+      await navigator.clipboard.writeText(device.userCode);
+      setCodeCopied(true);
+      window.setTimeout(() => setCodeCopied(false), 1500);
+    } catch {
+      // ignore
+    }
+  };
+
+  const isWaiting = phase === "waiting" || phase === "starting";
 
   return (
     <section
@@ -119,8 +220,8 @@ export default function GithubAuthCard({
         <p className="mt-1 text-sm text-zinc-400">Complete Step 1 first.</p>
       ) : (
         <p className="mt-1 text-sm text-zinc-400">
-          Standard GitHub OAuth — you&apos;ll be redirected to github.com to
-          authorize, then back here.
+          One button. GitHub will open in a new tab — approve and you&apos;re
+          done. No client id, no secret, no setup.
         </p>
       )}
 
@@ -138,117 +239,61 @@ export default function GithubAuthCard({
           </span>
         </div>
       ) : (
-        <div className="mt-4 space-y-4">
-          <div className="rounded-lg border border-border bg-black/30 p-3 text-sm">
-            <p className="text-zinc-300">
-              <strong>One-time GitHub setup.</strong> Open{" "}
-              {oauthAppNewUrl ? (
-                <a
-                  href={oauthAppNewUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="underline"
-                >
-                  github.com/settings/applications/new
-                </a>
-              ) : (
-                <code>github.com/settings/applications/new</code>
-              )}{" "}
-              and create an OAuth App with these settings:
-            </p>
-            <ul className="mt-2 space-y-1 text-xs text-zinc-400">
-              <li>
-                <strong>Application name:</strong> anything (e.g.{" "}
-                <code>gma-codegen</code>)
-              </li>
-              <li>
-                <strong>Homepage URL:</strong>{" "}
-                <code className="break-all">
-                  {callbackUrl
-                    ? callbackUrl.replace("/api/auth/callback", "")
-                    : "your deployed URL"}
-                </code>
-              </li>
-              <li className="flex flex-wrap items-center gap-2">
-                <span>
-                  <strong>Authorization callback URL:</strong>{" "}
-                </span>
-                <code className="break-all rounded bg-black/50 px-2 py-0.5">
-                  {callbackUrl || "/api/auth/callback"}
+        <div className="mt-4 space-y-3">
+          <button
+            type="button"
+            onClick={() => void startSignIn()}
+            disabled={!ready || isWaiting}
+            className="rounded-lg bg-accent px-4 py-2 font-medium text-white hover:opacity-90 disabled:opacity-50"
+          >
+            {phase === "starting"
+              ? "Starting…"
+              : phase === "waiting"
+                ? "Waiting for GitHub…"
+                : "Sign in with GitHub"}
+          </button>
+          {phase === "waiting" && device ? (
+            <div className="rounded-lg border border-border bg-black/30 p-4 text-sm">
+              <p className="text-zinc-300">
+                GitHub opened in a new tab. If prompted, enter this code and
+                click <em>Authorize</em>:
+              </p>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <code className="rounded-md border border-border bg-black/60 px-3 py-1.5 text-lg font-mono tracking-widest">
+                  {device.userCode}
                 </code>
                 <button
                   type="button"
-                  onClick={copyCallback}
-                  disabled={!callbackUrl}
-                  className="rounded-md border border-border px-2 py-0.5 text-xs hover:border-accent disabled:opacity-50"
+                  onClick={() => void copyCode()}
+                  className="rounded-md border border-border px-2 py-1 text-xs hover:border-accent"
                 >
-                  {callbackCopied ? "Copied!" : "Copy"}
+                  {codeCopied ? "Copied!" : "Copy code"}
                 </button>
-              </li>
-            </ul>
-            <p className="mt-2 text-xs text-zinc-500">
-              After registering, click <em>Generate a new client secret</em>{" "}
-              and paste both values below.
-            </p>
-          </div>
-
-          <label className="block text-sm">
-            <span className="mb-1 block text-zinc-300">Client ID</span>
-            <div className="flex gap-2">
-              <input
-                type={showId ? "text" : "password"}
-                autoComplete="off"
-                value={clientId}
-                onChange={(e) => setClientId(e.target.value)}
-                placeholder="Ov23li... or Iv1...."
-                disabled={!ready}
-              />
-              <button
-                type="button"
-                onClick={() => setShowId((s) => !s)}
-                className="shrink-0 rounded-lg border border-border px-3"
-              >
-                {showId ? "Hide" : "Show"}
-              </button>
+                <a
+                  href={
+                    device.verificationUriComplete || device.verificationUri
+                  }
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded-md border border-border px-2 py-1 text-xs hover:border-accent"
+                >
+                  Open GitHub again
+                </a>
+                <button
+                  type="button"
+                  onClick={cancel}
+                  className="rounded-md border border-border px-2 py-1 text-xs hover:border-accent"
+                >
+                  Cancel
+                </button>
+              </div>
+              <p className="mt-3 text-xs text-zinc-500">
+                Expires in {Math.floor(secondsLeft / 60)}:
+                {(secondsLeft % 60).toString().padStart(2, "0")}. This page
+                will switch automatically the moment you approve on GitHub.
+              </p>
             </div>
-          </label>
-
-          <label className="block text-sm">
-            <span className="mb-1 block text-zinc-300">Client Secret</span>
-            <div className="flex gap-2">
-              <input
-                type={showSecret ? "text" : "password"}
-                autoComplete="off"
-                value={clientSecret}
-                onChange={(e) => setClientSecret(e.target.value)}
-                placeholder="github_pat-style 40-char secret"
-                disabled={!ready}
-              />
-              <button
-                type="button"
-                onClick={() => setShowSecret((s) => !s)}
-                className="shrink-0 rounded-lg border border-border px-3"
-              >
-                {showSecret ? "Hide" : "Show"}
-              </button>
-            </div>
-            <span className="mt-1 block text-xs text-zinc-500">
-              Stored only in this browser&apos;s localStorage. It is sent to
-              this app&apos;s own backend during sign-in so it can complete
-              the OAuth code exchange with GitHub.
-            </span>
-          </label>
-
-          <button
-            type="button"
-            onClick={() => void signIn()}
-            disabled={
-              !ready || !clientId.trim() || !clientSecret.trim() || submitting
-            }
-            className="rounded-lg bg-accent px-4 py-2 font-medium text-white hover:opacity-90 disabled:opacity-50"
-          >
-            {submitting ? "Redirecting…" : "Sign in with GitHub"}
-          </button>
+          ) : null}
           {error ? <p className="text-sm text-red-400">{error}</p> : null}
         </div>
       )}

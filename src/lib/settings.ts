@@ -3,10 +3,12 @@
 const KEY_API = "gma.closerouter.apiKey";
 const KEY_BASE = "gma.closerouter.baseUrl";
 const KEY_GH = "gma.github.token";
-const KEY_GH_CLIENT = "gma.github.clientId";
-const KEY_GH_SECRET = "gma.github.clientSecret";
 const KEY_GH_USER = "gma.github.user";
 const KEY_MODEL = "gma.closerouter.model";
+
+// Legacy keys from the previous OAuth web flow. Cleared on first load so
+// stale Client ID / Secret values do not linger in the browser.
+const LEGACY_KEYS = ["gma.github.clientId", "gma.github.clientSecret"];
 
 function readLS(key: string): string {
   if (typeof window === "undefined") return "";
@@ -17,6 +19,16 @@ function writeLS(key: string, value: string): void {
   if (typeof window === "undefined") return;
   if (value) window.localStorage.setItem(key, value);
   else window.localStorage.removeItem(key);
+}
+
+if (typeof window !== "undefined") {
+  for (const k of LEGACY_KEYS) {
+    try {
+      window.localStorage.removeItem(k);
+    } catch {
+      // ignore
+    }
+  }
 }
 
 export function loadApiKey(): string {
@@ -36,18 +48,6 @@ export function loadGithubToken(): string {
 }
 export function saveGithubToken(value: string): void {
   writeLS(KEY_GH, value);
-}
-export function loadGithubClientId(): string {
-  return readLS(KEY_GH_CLIENT);
-}
-export function saveGithubClientId(value: string): void {
-  writeLS(KEY_GH_CLIENT, value);
-}
-export function loadGithubClientSecret(): string {
-  return readLS(KEY_GH_SECRET);
-}
-export function saveGithubClientSecret(value: string): void {
-  writeLS(KEY_GH_SECRET, value);
 }
 export function loadGithubUser(): string {
   return readLS(KEY_GH_USER);
