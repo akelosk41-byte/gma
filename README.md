@@ -3,10 +3,14 @@
 An AI code generator for your GitHub repos, powered by your
 [CloseRouter](https://closerouter.dev/dashboard) API key.
 
-You enter your CloseRouter key, check available models, sign in with GitHub
-via OAuth, then pick a repo and write a prompt. The AI commits the changes
-to a new branch in your repo and opens a pull request. Your default branch
-is never touched.
+You enter your CloseRouter key, check available models, click *Sign in
+with GitHub*, then pick a repo and write a prompt. The AI commits the
+changes to a new branch in your repo and opens a pull request. Your
+default branch is never touched.
+
+There is no Client ID, Client Secret or callback URL to configure. The
+first time you sign in, GitHub opens in a new tab, you click *Authorize*,
+and the page swaps itself into the signed-in state automatically.
 
 ## Deploy in 3 steps (works from a phone)
 
@@ -27,28 +31,28 @@ is never touched.
    - **Step 1 — CloseRouter API key.** Paste your key from
      <https://closerouter.dev/dashboard>, click *Check models*. The app
      shows the list of available models and remembers your default pick.
-   - **Step 2 — Sign in with GitHub (OAuth callback flow).** First time
-     only, the page tells you the exact *Authorization callback URL* for
-     your deploy (`https://YOUR-VERCEL-URL/api/auth/callback`) — copy it.
-     Then create a GitHub OAuth App at
-     <https://github.com/settings/applications/new>:
-     - *Application name*: anything (e.g. `gma-codegen`).
-     - *Homepage URL*: your Vercel URL.
-     - *Authorization callback URL*: paste the value you copied.
-     - Click *Register application* → click *Generate a new client secret*.
-     - Copy the **Client ID** and the **Client Secret**.
-
-     Paste both into the form on the home page and click *Sign in with
-     GitHub*. You'll be redirected to github.com, you click *Authorize*,
-     GitHub bounces you back to the app, and your token is saved in the
-     browser's `localStorage`.
+   - **Step 2 — Sign in with GitHub.** Click *Sign in with GitHub*. A
+     GitHub authorization page opens in a new tab — click *Authorize*
+     and the gma page picks up the token automatically. No Client ID,
+     no Client Secret, no callback URL. (Uses the GitHub OAuth Device
+     Flow under the hood; the OAuth App's public Client ID is hard-coded
+     in the source.)
    - **Step 3 — Your repositories.** Pick a repo, type what you want
      built, click *Build with AI*. You'll get a new branch and a PR link.
 
-All credentials live only in your browser's `localStorage`. The Client
-Secret is forwarded to this app's own backend during sign-in (so it can
-complete the OAuth code exchange with GitHub), then immediately discarded
-from the server. Nothing is persisted on Vercel.
+Only the resulting GitHub access token is stored in your browser's
+`localStorage`. No Client ID/Secret ever leaves the deployed code, no
+cookies are kept after the device-flow exchange, nothing is persisted on
+Vercel.
+
+### Using your own OAuth App
+
+If you want to use your own OAuth App instead of the one baked into the
+source, register an app at
+<https://github.com/settings/applications/new>, **enable Device Flow** on
+its settings page, then either edit `DEFAULT_GITHUB_CLIENT_ID` in
+`src/lib/oauth.ts` or set the `GITHUB_OAUTH_CLIENT_ID` environment
+variable on your Vercel project. No callback URL, no client secret.
 
 ## Run locally instead
 
@@ -57,9 +61,9 @@ npm install
 npm run dev
 ```
 
-Then open <http://localhost:3000>. No `.env` file is required. When
-registering a GitHub OAuth App for local use, set the callback URL to
-`http://localhost:3000/api/auth/callback`.
+Then open <http://localhost:3000>. No `.env` file is required. The
+built-in OAuth App's Device Flow works the same locally as it does on
+Vercel.
 
 ## Stack
 
@@ -67,15 +71,13 @@ registering a GitHub OAuth App for local use, set the callback URL to
 - Tailwind CSS
 - `@octokit/rest` for the GitHub REST API
 - Direct `fetch` against the CloseRouter OpenAI-compatible API
-- Standard GitHub OAuth web flow handled in two routes:
-  - `POST /api/auth/start` — stashes the Client ID + Secret + state in
-    HttpOnly cookies for the round-trip and returns the GitHub authorize
-    URL.
-  - `GET /api/auth/callback` — verifies state, exchanges the code for an
-    access token, returns a page that writes the token to `localStorage`
-    and redirects home.
+- GitHub OAuth Device Flow handled in two routes:
+  - `POST /api/auth/device/start` — asks GitHub for a device code and
+    user code using the hard-coded Client ID.
+  - `POST /api/auth/device/poll` — exchanges the device code for an
+    access token once the user has authorized on github.com.
 
-  No NextAuth, no database, no env vars.
+  No NextAuth, no database, no env vars, no client secret.
 
 ## How the codegen works
 

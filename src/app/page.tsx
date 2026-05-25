@@ -29,7 +29,7 @@ export default function HomePage() {
           </p>
           <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-zinc-300">
             <li>Enter your CloseRouter API key and load available models.</li>
-            <li>Sign in with GitHub via OAuth.</li>
+            <li>Sign in with GitHub — one click, no setup.</li>
             <li>
               Pick a repo, write what you want built — the AI commits the
               changes to a new branch and opens a PR.
