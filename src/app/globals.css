@@ -1,0 +1,49 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  background: #0b0d12;
+  color: #e6e8ee;
+  min-height: 100vh;
+}
+
+* {
+  border-color: #1f242e;
+}
+
+a {
+  color: #5b8def;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+textarea,
+input,
+select {
+  background: #11141b;
+  color: #e6e8ee;
+  border: 1px solid #1f242e;
+  border-radius: 8px;
+  padding: 10px 12px;
+  width: 100%;
+}
+
+textarea:focus,
+input:focus,
+select:focus {
+  outline: none;
+  border-color: #5b8def;
+}
