@@ -1,10 +1,5 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
-import {
-  buildRepoContext,
-  runCodegen,
-} from "@/lib/codegen";
+import { buildRepoContext, runCodegen } from "@/lib/codegen";
 import { commitFilesToNewBranch } from "@/lib/github";
 
 export const dynamic = "force-dynamic";
@@ -17,20 +12,13 @@ interface BuildRequestBody {
   model?: string;
   apiKey?: string;
   baseUrl?: string;
+  githubToken?: string;
   branchName?: string;
   openPr?: boolean;
   temperature?: number;
 }
 
 export async function POST(req: Request) {
-  const session = await getServerSession(authOptions);
-  if (!session?.accessToken) {
-    return NextResponse.json(
-      { error: "Not authenticated with GitHub" },
-      { status: 401 },
-    );
-  }
-
   let body: BuildRequestBody;
   try {
     body = (await req.json()) as BuildRequestBody;
@@ -38,7 +26,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const { owner, repo, prompt, model, apiKey } = body;
+  const { owner, repo, prompt, model, apiKey, githubToken } = body;
+  if (!githubToken) {
+    return NextResponse.json(
+      { error: "githubToken is required" },
+      { status: 400 },
+    );
+  }
   if (!owner || !repo) {
     return NextResponse.json(
       { error: "owner and repo are required" },
@@ -63,7 +57,7 @@ export async function POST(req: Request) {
 
   try {
     const context = await buildRepoContext({
-      accessToken: session.accessToken,
+      accessToken: githubToken,
       owner,
       repo,
     });
@@ -101,7 +95,7 @@ export async function POST(req: Request) {
     ].join("\n");
 
     const commit = await commitFilesToNewBranch({
-      accessToken: session.accessToken,
+      accessToken: githubToken,
       owner,
       repo,
       baseBranch: context.branch,
@@ -137,11 +131,13 @@ export async function POST(req: Request) {
 }
 
 function slugify(s: string): string {
-  return s
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 32) || "task";
+  return (
+    s
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 32) || "task"
+  );
 }
 
 function truncate(s: string, n: number): string {

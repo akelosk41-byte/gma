@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { CloseRouterModel } from "@/lib/closerouter";
-import { loadApiKey, loadBaseUrl } from "@/lib/settings";
+import { loadApiKey, loadBaseUrl, loadGithubToken } from "@/lib/settings";
 
 interface BuildResult {
   ok: boolean;
@@ -24,6 +24,7 @@ export default function BuildPanel({
 }) {
   const [apiKey, setApiKey] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
+  const [githubToken, setGhToken] = useState("");
   const [models, setModels] = useState<CloseRouterModel[]>([]);
   const [modelsError, setModelsError] = useState<string | null>(null);
   const [modelsLoading, setModelsLoading] = useState(false);
@@ -36,6 +37,7 @@ export default function BuildPanel({
   useEffect(() => {
     setApiKey(loadApiKey());
     setBaseUrl(loadBaseUrl());
+    setGhToken(loadGithubToken());
   }, []);
 
   const fetchModels = async () => {
@@ -65,8 +67,13 @@ export default function BuildPanel({
   };
 
   const canRun = useMemo(
-    () => !!apiKey && !!model && prompt.trim().length > 3 && !running,
-    [apiKey, model, prompt, running],
+    () =>
+      !!apiKey &&
+      !!githubToken &&
+      !!model &&
+      prompt.trim().length > 3 &&
+      !running,
+    [apiKey, githubToken, model, prompt, running],
   );
 
   const handleRun = async () => {
@@ -83,6 +90,7 @@ export default function BuildPanel({
           model,
           apiKey,
           baseUrl,
+          githubToken,
           openPr,
         }),
       });
@@ -116,11 +124,15 @@ export default function BuildPanel({
         with a PR.
       </p>
 
-      {!apiKey ? (
+      {!apiKey || !githubToken ? (
         <p className="mt-3 rounded-lg border border-yellow-700/40 bg-yellow-900/20 px-3 py-2 text-sm text-yellow-200">
-          Add your CloseRouter API key on the{" "}
-          <a href="/dashboard" className="underline">
-            dashboard
+          Add your{" "}
+          {!githubToken ? "GitHub token" : null}
+          {!apiKey && !githubToken ? " and " : null}
+          {!apiKey ? "CloseRouter API key" : null}{" "}
+          on the{" "}
+          <a href="/" className="underline">
+            home page
           </a>{" "}
           first.
         </p>

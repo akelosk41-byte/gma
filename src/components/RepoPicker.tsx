@@ -3,37 +3,54 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { RepoSummary } from "@/lib/github";
+import { loadGithubToken } from "@/lib/settings";
 
 export default function RepoPicker() {
   const [repos, setRepos] = useState<RepoSummary[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [hasToken, setHasToken] = useState(false);
+
+  const load = async () => {
+    setError(null);
+    setLoading(true);
+    setRepos([]);
+    try {
+      const token = loadGithubToken();
+      if (!token) {
+        throw new Error(
+          "No GitHub token saved. Add one above and click Save first.",
+        );
+      }
+      const r = await fetch("/api/github/repos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ githubToken: token }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data?.error || `Request failed: ${r.status}`);
+      setRepos((data.repos as RepoSummary[]) ?? []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    fetch("/api/github/repos", { cache: "no-store" })
-      .then(async (r) => {
-        const data = await r.json();
-        if (!r.ok) throw new Error(data?.error || "Failed to load repos");
-        return data as { repos: RepoSummary[] };
-      })
-      .then((data) => {
-        if (!cancelled) setRepos(data.repos);
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Unknown error");
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
+    const t = loadGithubToken();
+    setHasToken(!!t);
+    if (t) {
+      void load();
+    }
+    // Listen for storage changes so the list reloads after saving a token.
+    const handler = () => {
+      const tok = loadGithubToken();
+      setHasToken(!!tok);
     };
+    window.addEventListener("storage", handler);
+    return () => window.removeEventListener("storage", handler);
   }, []);
 
   const filtered = useMemo(() => {
@@ -48,28 +65,42 @@ export default function RepoPicker() {
 
   return (
     <section className="rounded-2xl border border-border bg-panel p-6">
-      <div className="flex items-end justify-between gap-3">
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold">Your GitHub repositories</h2>
           <p className="mt-1 text-sm text-zinc-400">
-            Pick a repo to generate code in. Changes are committed to a new
-            branch and a PR is opened — your default branch is never touched.
+            Pick a repo to generate code in. Changes go to a new branch and a
+            PR — your default branch is never touched.
           </p>
         </div>
-        <input
-          type="search"
-          placeholder="Filter…"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          className="max-w-xs"
-        />
+        <div className="flex items-center gap-2">
+          <input
+            type="search"
+            placeholder="Filter…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="max-w-xs"
+          />
+          <button
+            type="button"
+            onClick={() => void load()}
+            disabled={!hasToken || loading}
+            className="shrink-0 rounded-lg border border-border px-3 py-2 text-sm hover:border-accent"
+          >
+            {loading ? "Loading…" : repos.length ? "Reload" : "Load repos"}
+          </button>
+        </div>
       </div>
 
       <div className="mt-4">
-        {loading ? (
-          <p className="text-sm text-zinc-400">Loading repositories…</p>
+        {!hasToken ? (
+          <p className="rounded-lg border border-yellow-700/40 bg-yellow-900/20 px-3 py-2 text-sm text-yellow-200">
+            Save a GitHub token in the settings card above to load your repos.
+          </p>
         ) : error ? (
           <p className="text-sm text-red-400">Error: {error}</p>
+        ) : loading ? (
+          <p className="text-sm text-zinc-400">Loading repositories…</p>
         ) : filtered.length === 0 ? (
           <p className="text-sm text-zinc-400">No repositories found.</p>
         ) : (
